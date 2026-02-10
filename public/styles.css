@@ -243,7 +243,8 @@ body {
   border: 1px solid var(--accent);
 }
 
-.message.user .msg-avatar {
+.message.user .msg-avatar,
+.message.bot .msg-avatar {
   display: none;
 }
 
@@ -277,6 +278,10 @@ body {
 
 .message.user .bubble .msg-time {
   color: rgba(255,255,255,0.5);
+}
+
+.message.bot {
+  max-width: 100%;
 }
 
 .message.bot .bubble {
@@ -1307,6 +1312,7 @@ body {
     gap: 12px;
   }
   .message { max-width: 90%; }
+  .message.bot { max-width: 100%; }
   .bubble {
     padding: 8px 12px;
     padding-bottom: 14px;

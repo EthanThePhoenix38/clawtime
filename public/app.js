@@ -1,6 +1,6 @@
 // ─── Version check: force reload if cached JS doesn't match HTML version ───
 (function() {
-  var JS_VERSION = '20260210f';
+  var JS_VERSION = '20260210g';
   console.log('[ClawTime] JS loaded, version:', JS_VERSION);
   if (window.CLAWTIME_VERSION && window.CLAWTIME_VERSION !== JS_VERSION) {
     console.log('[ClawTime] Version mismatch, forcing reload');
@@ -1162,6 +1162,11 @@ function connectWs() {
 
       if (msg.type === 'pong') {
         heartbeatReceived();
+        // Also clear health check timeout if pending
+        if (ws._healthCheckTimeout) {
+          clearTimeout(ws._healthCheckTimeout);
+          ws._healthCheckTimeout = null;
+        }
         return;
       }
 
@@ -1458,7 +1463,7 @@ setInterval(function() {
 function checkPageFreeze() {
   var now = Date.now();
   var gap = now - lastActiveTime;
-  if (gap > 15000) { // More than 15s gap = page was frozen
+  if (gap > 8000) { // More than 8s gap = page was frozen (interval is 5s)
     console.log('[WS] Page was frozen for', Math.round(gap / 1000) + 's, checking connection...');
     return true;
   }
@@ -1486,11 +1491,20 @@ document.addEventListener('visibilitychange', function() {
             }
           }, 500); // Small delay to let browser stabilize
         }
-      } else if (wasFrozen) {
-        // Connection looks open but page was frozen - send a ping to verify
-        console.log('[WS] Sending health check after freeze...');
+      } else {
+        // Connection looks open - always verify with a ping after visibility change
+        // (catches zombie connections from page freeze, network hiccups, etc.)
+        console.log('[WS] Verifying connection after visibility change...');
         try {
           ws.send(JSON.stringify({ type: 'ping' }));
+          // Set a timeout - if no pong received, connection is dead
+          var healthCheckTimeout = setTimeout(function() {
+            console.log('[WS] Health check pong timeout - connection dead, reconnecting...');
+            if (ws) ws.close();
+            connectWs();
+          }, 5000);
+          // Store timeout so pong handler can clear it
+          ws._healthCheckTimeout = healthCheckTimeout;
         } catch (e) {
           console.log('[WS] Health check failed, reconnecting...');
           connectWs();
