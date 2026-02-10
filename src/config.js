@@ -26,8 +26,8 @@ const ENABLE_INJECT = (process.env.ENABLE_INJECT || 'true').toLowerCase() === 't
 const THEME_ACCENT = process.env.THEME_ACCENT || 'f97316';
 const SESSION_TTL = parseInt(process.env.SESSION_TTL_HOURS || '24', 10) * 60 * 60 * 1000;
 const ENABLE_STT = (process.env.ENABLE_STT || 'false').toLowerCase() === 'true';
-const ENABLE_TASKS = (process.env.ENABLE_TASKS || 'false').toLowerCase() === 'true';
-const TASKS_FILE = process.env.TASKS_FILE || '';
+const ENABLE_TASKS = (process.env.ENABLE_TASKS || 'true').toLowerCase() === 'true';
+const TASKS_FILE = process.env.TASKS_FILE || path.join(DATA_DIR, 'tasks.json');
 const ENABLE_VOICE = (process.env.ENABLE_VOICE || 'true').toLowerCase() === 'true';
 const WHISPER_BIN = process.env.WHISPER_BIN || '/usr/local/bin/whisper-transcribe';
 
