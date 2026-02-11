@@ -1088,7 +1088,7 @@ body {
 /* ─── Live Talk / Voice Call Overlay ─── */
 /* ═══════════════════════════════════════ */
 
-/* Call overlay - pinned at top of messages, full width bar */
+/* Call overlay - thin bar pinned at top of messages */
 #callOverlay {
   position: absolute;
   top: 0;
@@ -1101,15 +1101,16 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  padding: 10px 16px;
-  border-bottom: 1px solid rgba(249, 115, 22, 0.4);
+  gap: 8px;
+  padding: 4px 12px;
+  border-bottom: 1px solid rgba(249, 115, 22, 0.3);
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.3s ease;
   height: auto;
   box-sizing: border-box;
   white-space: nowrap;
+  font-size: 12px;
 }
 #callOverlay.active {
   opacity: 1;
@@ -1122,7 +1123,7 @@ body {
 
 /* Status text */
 .call-status {
-  font-size: 14px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--text);
   letter-spacing: 0.5px;
@@ -1142,15 +1143,15 @@ body {
 .call-waveform {
   display: flex;
   align-items: center;
-  gap: 3px;
-  height: 32px;
+  gap: 2px;
+  height: 16px;
 }
 .call-waveform span {
   display: block;
-  width: 4px;
-  height: 8px;
+  width: 3px;
+  height: 6px;
   background: var(--text-dim);
-  border-radius: 2px;
+  border-radius: 1px;
   transition: background 0.3s;
 }
 .call-waveform.listening span {
@@ -1188,16 +1189,16 @@ body {
 
 /* End call button */
 .call-end-btn {
-  width: 32px;
-  height: 32px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
-  border: 2px solid transparent;
+  border: none;
   background: #e53935;
   color: white;
-  font-size: 14px;
+  font-size: 11px;
   font-weight: bold;
   cursor: pointer;
-  margin: 10% 0;
+  margin: 0;
   transition: transform 0.2s;
   display: flex;
   align-items: center;
