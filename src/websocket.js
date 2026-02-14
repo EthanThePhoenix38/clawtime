@@ -25,7 +25,7 @@ import path from 'path';
 import { WebSocketServer, WebSocket } from 'ws';
 import {
   GW_URL, GW_TOKEN, SESSION_KEY, PORT,
-  PUBLIC_DIR, DATA_DIR, MEDIA_DIR,
+  PUBLIC_DIR, DATA_DIR, MEDIA_DIR, PUBLIC_URL,
 } from './config.js';
 import { sessions, setActiveClientWs } from './state.js';
 import { auditLog } from './security.js';
@@ -190,7 +190,8 @@ export function setupWebSocket(server) {
     clientWs._secureSend = secureSend;
 
     function connectToGateway() {
-      gwWs = new WebSocket(GW_URL);
+      const wsOpts = PUBLIC_URL ? { headers: { 'Origin': PUBLIC_URL } } : {};
+      gwWs = new WebSocket(GW_URL, wsOpts);
 
       gwWs.on('open', () => {
         console.log(`[${visitorId}] Connected to gateway`);
@@ -216,6 +217,8 @@ export function setupWebSocket(server) {
                   mode: 'webchat',
                 },
                 caps: [],
+                role: 'operator',
+                scopes: ['operator.write', 'operator.read'],
                 auth: { token: GW_TOKEN },
               },
             };

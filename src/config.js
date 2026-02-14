@@ -28,6 +28,7 @@ const SESSION_TTL = parseInt(process.env.SESSION_TTL_HOURS || '24', 10) * 60 * 6
 const ENABLE_STT = (process.env.ENABLE_STT || 'false').toLowerCase() === 'true';
 const ENABLE_TASKS = (process.env.ENABLE_TASKS || 'true').toLowerCase() === 'true';
 const TASKS_FILE = process.env.TASKS_FILE || path.join(DATA_DIR, 'tasks.json');
+const PUBLIC_URL = process.env.PUBLIC_URL || ''; // Tunnel URL for gateway Origin header
 const ENABLE_VOICE = (process.env.ENABLE_VOICE || 'true').toLowerCase() === 'true';
 const WHISPER_BIN = process.env.WHISPER_BIN || '/usr/local/bin/whisper-transcribe';
 
@@ -114,6 +115,7 @@ export {
   TASKS_FILE,
   ENABLE_VOICE,
   WHISPER_BIN,
+  PUBLIC_URL,
   RP_NAME,
   CREDENTIALS_FILE,
   MEDIA_DIR,

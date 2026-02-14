@@ -272,14 +272,55 @@ Create/update `~/.clawtime/config.json`:
 }
 ```
 
+### Avatar States
+
+Each state should be **visually distinct** with unique activities and indicators. Users should immediately recognize which state the avatar is in.
+
+| State | Purpose | Design Ideas |
+|-------|---------|--------------|
+| `idle` | Default, waiting | Breathing, looking around, show-off poses, occasional blink |
+| `thinking` | Processing request | Head tilt, eyes up, thought bubble (❓), tapping foot/wing |
+| `talking` | Delivering response | Mouth animation, speech bubble, music notes (🎵), gesturing |
+| `listening` | User is speaking | Leaning forward, BIG attentive eyes, ears/crest perked |
+| `working` | Extended task | Laptop/tools visible, typing motion, focused squint |
+| `happy` | Positive outcome | Bouncing, hearts (❤️), squinty smile eyes (^_^), wagging |
+| `celebrating` | Major success | Jumping, spinning, confetti (⭐), maximum energy |
+| `sleeping` | Inactive/idle timeout | Eyes closed, Z's floating (💤), curled up, slow breathing |
+| `error` | Something went wrong | Shaking, exclamation (❗), ruffled, sweat drop, red tint |
+| `reflecting` | Thoughtful moment | Light bulb (💡), gazing upward, calm pose, one hand raised |
+
+### State Design Principles
+
+1. **Visual indicators matter** — Add floating symbols (❓❤️💡❗💤⭐) that appear per-state
+2. **Body language is key** — Each state needs distinct posture, movement speed, and energy level
+3. **Eyes tell the story** — Big/small, open/closed, squinty/wide, pupil direction
+4. **Movement rhythm varies** — Fast/bouncy for happy, slow/gentle for sleeping, shaky for error
+5. **Props add clarity** — Laptop for working, floating Z's for sleeping, confetti for celebrating
+6. **Think like a character animator** — What would a Pixar character do in this state?
+
+### Creative Examples
+
+**Parrot avatar:**
+- `thinking` → Scratches head with foot, question mark floats
+- `talking` → Beak opens/closes, music notes float up
+- `error` → Feathers fly off, squawking pose, wings spread in alarm
+- `celebrating` → Full party parrot spin, confetti everywhere
+
+**Salamander avatar:**
+- `thinking` → Flames pulse brighter, one foot taps
+- `sleeping` → Flames become tiny embers, curled up
+- `error` → Flames turn red, whole body shakes
+- `reflecting` → Light bulb appears, one paw raised thoughtfully
+
 ### Avatar Design Tips
 
-- Study `public/avatars/lobster.js` for full-featured example
+- Study `~/.clawtime/avatars/` for full-featured examples with all states
 - Use voxel style (boxes, spheres) — matches ClawTime aesthetic
-- Implement all states: `idle`, `thinking`, `working`, `talking`, `listening`, `happy`, `error`, `sleeping`
-- Add connection status indicator (ring/glow)
+- Implement **all** states with distinct visuals — don't make states look similar
+- Add connection status indicator (ring/glow on platform)
 - Test on desktop and mobile
 - Keep polygon count reasonable for mobile performance
+- Hide/show indicator objects per-state (don't create/destroy every frame)
 
 ## Key Files
 
