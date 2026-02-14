@@ -1,12 +1,7 @@
-// ─── Version check: force reload if cached JS doesn't match HTML version ───
+// ─── Version check: use query string hash for cache busting ───
+// No hardcoded version — rely on ?v= query strings in HTML for cache control
 (function() {
-  var JS_VERSION = '20260211s';
-  console.log('[ClawTime] JS loaded, version:', JS_VERSION);
-  if (window.CLAWTIME_VERSION && window.CLAWTIME_VERSION !== JS_VERSION) {
-    console.log('[ClawTime] Version mismatch, forcing reload');
-    location.reload(true);
-    return;
-  }
+  console.log('[ClawTime] JS loaded, version:', window.CLAWTIME_VERSION || 'unknown');
 })();
 
 // ─── Config (loaded from server) ───
@@ -1548,15 +1543,17 @@ function renderFormWidget(container, id, data) {
 var speechPreviewEl = null;
 
 function showSpeechPreview(text) {
+  // Show in messages area as pending bubble (real-time transcript)
   if (!speechPreviewEl) {
     var div = document.createElement('div');
-    div.className = 'message user';
-    div.style.opacity = '0.6';
+    div.className = 'message user speech-preview';
 
     var bubble = document.createElement('div');
     bubble.className = 'bubble user';
-    bubble.style.fontStyle = 'italic';
+    bubble.style.opacity = '0.7';
     bubble.style.borderStyle = 'dashed';
+    bubble.style.borderColor = 'rgba(255, 255, 255, 0.5)';
+    bubble.style.borderWidth = '2px';
 
     div.appendChild(bubble);
     messagesEl.appendChild(div);
@@ -1567,6 +1564,7 @@ function showSpeechPreview(text) {
 }
 
 function hideSpeechPreview() {
+  // Remove pending message bubble
   if (speechPreviewEl) {
     speechPreviewEl.container.remove();
     speechPreviewEl = null;
@@ -2753,7 +2751,7 @@ var pttMediaRecorder = null;
 var pttAudioChunks = [];
 var pttAudioContext = null;
 var pttAnalyser = null;
-var PTT_NOISE_THRESHOLD = 0.01; // RMS threshold (0-1 scale, ~0.01 = very sensitive, almost always Whisper)
+var PTT_NOISE_THRESHOLD = 1.0; // RMS threshold — set to 1.0 to always use browser Web Speech API (no Whisper)
 var PTT_NOISE_SAMPLE_MS = 150; // How long to sample noise before deciding
 
 function pttEnsureMicPermission() {
@@ -3234,7 +3232,7 @@ var callRecognition = null;
 var callPlaying = false;
 
 // Echo detection threshold for barge-in during TTS
-var ECHO_CONFIDENCE_THRESHOLD = 0.93;
+var ECHO_CONFIDENCE_THRESHOLD = 0.88; // Balance between barge-in sensitivity and echo rejection
 
 // Check browser support for SpeechRecognition
 var SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -3258,15 +3256,15 @@ callOverlay.innerHTML = '' +
   '<button class="call-end-btn" id="callEndBtn">✕</button>';
 
 // Whisper mode state for voice calls
-var callUseWhisper = true; // Whisper mode enabled by default
+var callUseWhisper = false; // Browser STT by default (set true for server-side Whisper)
 
 // Element references for avatar panel interactions
 var avatarPanelEl = document.getElementById('avatarPanel');
 var chatMainEl = document.querySelector('.chat-main');
 var dragSeparatorEl = document.getElementById('dragSeparator');
 
-// Append overlay to chat-main (positioned at top of messages area)
-if (chatMainEl) chatMainEl.appendChild(callOverlay);
+// Append overlay to avatar panel (positioned at bottom)
+if (avatarPanelEl) avatarPanelEl.appendChild(callOverlay);
 
 // ── Call button (overlaid on avatar) ──
 // Call button removed — voice mode uses the 🔊 button in avatar-buttons
@@ -3371,7 +3369,13 @@ function startMediaRecorderSTT() {
   // Only start Whisper STT when enabled or browser STT unavailable
   if (!callUseWhisper && SpeechRecognitionAPI) return;
   sttActive = true;
-  navigator.mediaDevices.getUserMedia({ audio: true }).then(function(stream) {
+  navigator.mediaDevices.getUserMedia({ 
+    audio: {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true
+    }
+  }).then(function(stream) {
     mediaStream = stream;
 
     // Set up audio analyser for silence detection
@@ -3535,7 +3539,7 @@ function startCall() {
     window.voiceMode = true;
     localStorage.setItem('clawtime_voice', 'true');
     callOverlay.classList.add('active');
-    messagesEl.style.paddingTop = '35px'; // Make room for thin voice bar
+    // Voice bar now in avatar panel, no padding needed
     messagesEl.scrollTop = messagesEl.scrollHeight; // Keep scroll at bottom
     // Notify server to enable TTS
     console.log('[Voice] Sending voice_mode:true to server');
@@ -3546,6 +3550,7 @@ function startCall() {
       startMediaRecorderSTT();
     } else if (SpeechRecognitionAPI) {
       startRecognition();
+      startBargeInVAD(); // VAD for barge-in during browser STT
     } else {
       startMediaRecorderSTT();
     }
@@ -3563,9 +3568,10 @@ function endCall() {
   // Notify server
   if (ws && ws.readyState === 1) secureSend(JSON.stringify({ type: 'voice_mode', enabled: false }));
   callOverlay.classList.remove('active');
-  messagesEl.style.paddingTop = ''; // Remove voice bar padding
+  // Voice bar now in avatar panel, no padding change needed
   stopRecognition();
   stopMediaRecorderSTT();
+  stopBargeInVAD();
   stopCallAudio();
   callPlaying = false;
   if (synth) synth.cancel();
@@ -3599,7 +3605,7 @@ function setCallStatus(mode) {
 }
 
 // ── Noise-filtering helpers ──
-var CALL_CONFIDENCE_THRESHOLD = 0.7;
+var CALL_CONFIDENCE_THRESHOLD = 0.5; // Lowered to accept more barge-in speech
 var CALL_MIN_LENGTH = 2;
 // Common noise / filler transcriptions to discard
 var CALL_NOISE_WORDS = /^(um+|uh+|hm+|hmm+|ah+|oh+|er+|huh+|mhm+|mm+|shh+|tsk|psst|ha(ha)*|he(he)*|ho(ho)*)$/i;
@@ -3645,29 +3651,28 @@ function ensureRecognitionInstance() {
 
   callRecognition.onstart = function() { _sttStarting = false; };
 
+  // Buffer to capture speech during TTS for barge-in
+  var _bargeInBuffer = '';
+  
   callRecognition.onresult = function(event) {
     if (!callActive) return;
     
-    // If playing TTS, check confidence before triggering barge-in
-    // Echoed audio from speakers typically has lower confidence
+    // If TTS is playing, buffer high-confidence speech for after barge-in
     if (callPlaying) {
-      var maxConfidence = 0;
-      for (var j = event.resultIndex; j < event.results.length; j++) {
-        var conf = event.results[j][0].confidence;
-        if (conf > maxConfidence) maxConfidence = conf;
+      for (var k = event.resultIndex; k < event.results.length; k++) {
+        if (event.results[k][0].confidence > 0.75) {
+          _bargeInBuffer = event.results[k][0].transcript;
+        }
       }
-      // Only barge-in if confidence is high (real user speech, not echo)
-      if (maxConfidence < ECHO_CONFIDENCE_THRESHOLD) {
-        return; // Likely echo — ignore
-      }
-      if (activeTTSRunId) {
-        secureSend(JSON.stringify({ type: 'barge_in', runId: activeTTSRunId }));
-      }
-      stopCallAudio();
-      activeTTSRunId = null;
-      _sttBargeInActive = true;
-      setCallStatus('listening');
-      if (window.setAvatarState) setAvatarState('listening');
+      return;
+    }
+    
+    // After barge-in, prepend buffered speech if any
+    var bargeInPrefix = '';
+    if (_bargeInBuffer) {
+      console.log('[Barge-in] Using buffered speech:', _bargeInBuffer);
+      bargeInPrefix = _bargeInBuffer;
+      _bargeInBuffer = '';
     }
     var interim = '';
     for (var i = event.resultIndex; i < event.results.length; i++) {
@@ -3676,10 +3681,14 @@ function ensureRecognitionInstance() {
 
       if (event.results[i].isFinal) {
         if (isNoisyTranscript(transcript, confidence)) {
+          console.log('[STT] Filtered as noisy:', transcript, 'conf:', confidence);
           hideSpeechPreview();
           continue;
         }
-        var text = transcript.trim();
+        // Include any buffered barge-in speech
+        var text = (bargeInPrefix ? bargeInPrefix + ' ' : '') + transcript.trim();
+        text = text.trim();
+        bargeInPrefix = ''; // Clear after use
         addMessage(text, 'user', { timestamp: Date.now() });
         showTyping();
         secureSend(JSON.stringify({ type: 'send', text: text }));
@@ -3692,6 +3701,7 @@ function ensureRecognitionInstance() {
       }
     }
     if (interim) {
+      console.log('[STT] Interim:', interim);
       showSpeechPreview(interim);
     } else {
       hideSpeechPreview();
@@ -3729,10 +3739,82 @@ function ensureRecognitionInstance() {
   };
 }
 
+// ── VAD for barge-in during browser STT ──
+var bargeInVADInterval = null;
+var bargeInStream = null;
+var bargeInAnalyser = null;
+
+function startBargeInVAD() {
+  if (bargeInVADInterval) return; // Already running
+  console.log('[VAD] Starting barge-in VAD monitor');
+  
+  navigator.mediaDevices.getUserMedia({ 
+    audio: { echoCancellation: true, noiseSuppression: true }
+  }).then(function(stream) {
+    bargeInStream = stream;
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    var source = audioCtx.createMediaStreamSource(stream);
+    bargeInAnalyser = audioCtx.createAnalyser();
+    bargeInAnalyser.fftSize = 512;
+    source.connect(bargeInAnalyser);
+    
+    var dataArray = new Uint8Array(bargeInAnalyser.fftSize);
+    
+    bargeInVADInterval = setInterval(function() {
+      if (!callActive) { stopBargeInVAD(); return; }
+      if (!callPlaying) return; // Only check during TTS playback
+      
+      bargeInAnalyser.getByteTimeDomainData(dataArray);
+      var sum = 0;
+      for (var i = 0; i < dataArray.length; i++) {
+        var val = (dataArray[i] - 128) / 128;
+        sum += val * val;
+      }
+      var rms = Math.sqrt(sum / dataArray.length);
+      
+      // Log all RMS values during TTS for debugging
+      if (rms > 0.05) {
+        console.log('[VAD] RMS:', rms.toFixed(3), 'playing:', callPlaying);
+      }
+      // Lower threshold for barge-in
+      if (rms > 0.08) {
+        console.log('[VAD Barge-in] Triggered! RMS:', rms.toFixed(3));
+        if (activeTTSRunId) {
+          secureSend(JSON.stringify({ type: 'barge_in', runId: activeTTSRunId }));
+        }
+        stopCallAudio();
+        activeTTSRunId = null;
+        setCallStatus('listening');
+        if (window.setAvatarState) setAvatarState('listening');
+        // Restart speech recognition to capture barge-in speech
+        if (!callUseWhisper && SpeechRecognitionAPI) {
+          try {
+            if (callRecognition) callRecognition.abort();
+          } catch(e) {}
+          setTimeout(function() { startRecognition(); }, 100);
+        }
+      }
+    }, 100);
+  }).catch(function(err) {
+    console.error('[VAD] Mic error:', err);
+  });
+}
+
+function stopBargeInVAD() {
+  if (bargeInVADInterval) {
+    clearInterval(bargeInVADInterval);
+    bargeInVADInterval = null;
+  }
+  if (bargeInStream) {
+    bargeInStream.getTracks().forEach(function(t) { t.stop(); });
+    bargeInStream = null;
+  }
+}
+
 function startRecognition() {
   if (!SpeechRecognitionAPI || !callActive) return;
   if (callUseWhisper) return; // Don't start browser STT when Whisper mode is on
-  if (callPlaying) return;
+  // Keep running during TTS for barge-in support (removed callPlaying check)
   if (_sttStarting) return;
   _sttStarting = true;
   if (_sttRestartTimer) { clearTimeout(_sttRestartTimer); _sttRestartTimer = null; }
@@ -3801,8 +3883,18 @@ function playNextTTSChunk() {
     return;
   }
   callPlaying = true;
-  // Don't stop recording — VAD needs to detect barge-in
-  // Audio will be discarded during TTS playback
+  // Keep speech recognition running for barge-in
+  if (!callUseWhisper && SpeechRecognitionAPI && callRecognition) {
+    try {
+      // Ensure recognition is active during TTS for barge-in
+      if (callRecognition.state !== 'running') {
+        callRecognition.start();
+        console.log('[Barge-in] Restarted recognition during TTS');
+      }
+    } catch(e) {
+      console.log('[Barge-in] Recognition already running:', e.message);
+    }
+  }
   if (window.setAvatarState) setAvatarState('talking');
   setCallStatus('speaking');
   var url = queue.shift();

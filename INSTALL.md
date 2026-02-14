@@ -12,41 +12,54 @@ npm install
 ./scripts/setup.sh
 ```
 
-The setup script will:
-- Prompt for bot name and emoji
-- Configure gateway token
-- Create systemd service
-- Start ClawTime
+The setup script prompts for bot name/emoji, configures gateway token, and starts ClawTime.
 
-## Tunnel Setup (Required for Remote Access)
+## Remote Access
 
-For access outside localhost, set up a tunnel:
+ClawTime requires a stable HTTPS URL for WebAuthn passkeys.
 
-**Option A: ngrok (stable URL)**
+**Cloudflare Tunnel (recommended, free):**
+```bash
+# Quick tunnel (URL changes on restart)
+cloudflared tunnel --url http://localhost:3000
+
+# Named tunnel (stable URL, requires setup)
+cloudflared tunnel create clawtime
+cloudflared tunnel route dns clawtime your-subdomain.yourdomain.com
+cloudflared tunnel run clawtime
+```
+
+**ngrok (alternative):**
 ```bash
 ngrok http 3000 --domain=your-subdomain.ngrok-free.dev
 ```
 
-**Option B: Cloudflare quick tunnel (free, URL changes on restart)**
+After setting up tunnel:
 ```bash
-cloudflared tunnel --url http://localhost:3000
-```
-
-Then update config with your tunnel URL:
-```bash
+# Update ClawTime config
 sed -i 's|^PUBLIC_URL=.*|PUBLIC_URL=https://YOUR-TUNNEL-URL|' ~/.clawtime/.env
+
+# Add tunnel URL to gateway allowed origins
 openclaw config set gateway.controlUi.allowedOrigins '["https://YOUR-TUNNEL-URL"]'
+
+# Restart services
 systemctl --user restart clawtime openclaw-gateway
 ```
 
-## Voice Mode (Optional)
+## Voice Mode
 
-Requires [whisper.cpp](https://github.com/ggerganov/whisper.cpp) for server-side STT:
+**Browser STT (default)** — real-time transcription preview, no setup required.
+- Works on Chrome, Edge (limited iOS Safari support)
+- Config: `var callUseWhisper = false;` in `app.js`
 
+**Server-side Whisper (optional)** — better accuracy, works on all browsers.
 ```bash
-cd /tmp && git clone https://github.com/ggerganov/whisper.cpp.git && cd whisper.cpp
-make && bash ./models/download-ggml-model.sh base.en
+# Install whisper.cpp
+cd /tmp && git clone https://github.com/ggerganov/whisper.cpp.git
+cd whisper.cpp && make
+bash ./models/download-ggml-model.sh base.en
 
+# Create transcribe script
 sudo tee /usr/local/bin/whisper-transcribe << 'EOF'
 #!/bin/bash
 /tmp/whisper.cpp/main -m /tmp/whisper.cpp/models/ggml-base.en.bin -f "$1" --no-timestamps -otxt 2>/dev/null
@@ -54,8 +67,15 @@ cat "${1}.txt" && rm -f "${1}.txt"
 EOF
 sudo chmod +x /usr/local/bin/whisper-transcribe
 ```
+Enable with: `var callUseWhisper = true;` in `app.js`
 
-Falls back to browser SpeechRecognition if unavailable.
+## Troubleshooting
+
+**Connection refused:** Check gateway token matches in `~/.clawtime/.env` and gateway config.
+
+**Origin rejected:** Add your tunnel URL to `gateway.controlUi.allowedOrigins`.
+
+**WebSocket scope error:** Ensure ClawTime sends `role: 'operator'` and `scopes: ['operator.write', 'operator.read']` in connection params (see `src/websocket.js`).
 
 ---
 
