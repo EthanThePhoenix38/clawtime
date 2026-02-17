@@ -147,45 +147,73 @@ function loadOlderMessages() {
   if (loadingMore || historyIndex <= 0) return;
   loadingMore = true;
 
-  showLoadingIndicator();
-
   var newStart = Math.max(0, historyIndex - HISTORY_PAGE_SIZE);
 
+  // Remove indicators first and measure
   removeLoadMoreIndicator();
+  removeLoadingIndicator();
 
-  // Anchor: find the first real message (not indicator) and record its offset
-  var anchorEl = null;
-  var children = messagesEl.children;
-  for (var ci = 0; ci < children.length; ci++) {
-    if (children[ci].classList.contains('message')) {
-      anchorEl = children[ci];
-      break;
-    }
-  }
-  var anchorOffsetBefore = anchorEl ? anchorEl.offsetTop : 0;
+  // Record current state
+  var prevScrollHeight = messagesEl.scrollHeight;
+  var prevScrollTop = messagesEl.scrollTop;
 
-  var firstChild = messagesEl.firstChild;
-  for (var i = historyIndex - 1; i >= newStart; i--) {
+  // Temporarily prevent scroll events by setting overflow
+  var prevOverflow = messagesEl.style.overflow;
+  messagesEl.style.overflow = 'hidden';
+
+  // Create a document fragment for batch DOM insertion
+  var fragment = document.createDocumentFragment();
+  var tempMessages = [];
+  
+  for (var i = newStart; i < historyIndex; i++) {
     var m = historyMessages[i];
+    if (m.widget) continue; // Skip widgets
+    
+    var div = document.createElement('div');
+    div.className = 'message ' + m.role;
+    
+    var bubble = document.createElement('div');
+    bubble.className = 'bubble ' + m.role;
+    
     if (m.images && m.images.length > 0) {
-      addImageMessage(m.text, m.role, m.images[0], { timestamp: m.timestamp, prepend: true, beforeEl: firstChild, noScroll: true });
+      var img = document.createElement('img');
+      img.className = 'msg-image';
+      img.src = m.images[0];
+      bubble.appendChild(img);
+      if (m.text) {
+        var textDiv = document.createElement('div');
+        textDiv.innerHTML = renderMarkdown(m.text);
+        bubble.appendChild(textDiv);
+      }
     } else {
-      addMessage(m.text, m.role, { timestamp: m.timestamp, prepend: true, beforeEl: firstChild, noScroll: true });
+      bubble.innerHTML = renderMarkdown(m.text || '');
     }
+    
+    div.appendChild(bubble);
+    tempMessages.push(div);
+  }
+  
+  // Insert all at once at the beginning
+  var firstChild = messagesEl.firstChild;
+  for (var j = tempMessages.length - 1; j >= 0; j--) {
+    messagesEl.insertBefore(tempMessages[j], firstChild);
   }
 
   historyIndex = newStart;
 
+  // Calculate new scroll position to maintain view
+  var newScrollHeight = messagesEl.scrollHeight;
+  var heightAdded = newScrollHeight - prevScrollHeight;
+  
+  // Set scroll position before re-enabling overflow
+  messagesEl.scrollTop = prevScrollTop + heightAdded;
+  
+  // Re-enable scroll
+  messagesEl.style.overflow = prevOverflow || '';
+
+  // Add load more indicator
   if (historyIndex > 0) {
     showLoadMoreIndicator();
-  }
-
-  removeLoadingIndicator();
-
-  // Restore: keep anchor message at the same visual position
-  if (anchorEl) {
-    var anchorOffsetAfter = anchorEl.offsetTop;
-    messagesEl.scrollTop += (anchorOffsetAfter - anchorOffsetBefore);
   }
 
   loadingMore = false;

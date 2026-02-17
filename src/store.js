@@ -35,6 +35,7 @@ export function loadMessages() {
  * @returns {object} The saved message with id and timestamp
  */
 export function saveMessage(msg) {
+  console.log(`[store] saveMessage: role=${msg.role}, textLen=${msg.text?.length || 0}, widget=${!!msg.widget}`);
   const messages = loadMessages();
   const entry = {
     id: crypto.randomUUID(),
@@ -102,6 +103,8 @@ export function saveWidgetResponse(widgetId, response) {
 export function saveOrUpdateByRunId(runId, data) {
   const messages = loadMessages();
   const idx = messages.findIndex(m => m.runId === runId);
+  
+  console.log(`[store] saveOrUpdateByRunId: runId=${runId?.slice(0,8)}, exists=${idx !== -1}, final=${data.final}, textLen=${data.text?.length || 0}`);
   
   if (idx === -1) {
     // Create new message

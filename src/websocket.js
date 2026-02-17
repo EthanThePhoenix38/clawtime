@@ -514,6 +514,15 @@ export function setupWebSocket(server) {
             auditLog('e2e_established', { visitorId });
             console.log(`[${visitorId}] E2E ready, sending e2e_ready`);
             secureSend(JSON.stringify({ type: 'e2e_ready' }));
+            
+            // Send avatar state based on pending operations
+            // If there are pending runIds, show working/thinking state
+            if (webchatRunIds.size > 0 || clientWs.toolUseRunIds?.size > 0) {
+              const avatarState = clientWs.toolUseRunIds?.size > 0 ? 'working' : 'thinking';
+              console.log(`[${visitorId}] Restoring avatar state: ${avatarState} (${webchatRunIds.size} pending)`);
+              secureSend(JSON.stringify({ type: 'avatar_state', state: avatarState }));
+            }
+            
             // Flush any pending outbound messages
             for (const pending of e2ePendingOutbound) {
               secureSend(pending);
