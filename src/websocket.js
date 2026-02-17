@@ -286,6 +286,15 @@ export function setupWebSocket(server) {
             const hasToolUse = contentBlocks.some(b => b.type === 'tool_use');
             if (hasToolUse && state === 'delta') {
               secureSend(JSON.stringify({ type: 'avatar_state', state: 'working' }));
+              // Buffer text during tool calls — don't send partial text that will be overwritten
+              // Track that this runId has tool use so we buffer until final
+              if (!clientWs.toolUseRunIds) clientWs.toolUseRunIds = new Set();
+              clientWs.toolUseRunIds.add(payload.runId);
+            }
+
+            // If this runId had tool use, skip deltas — only send final
+            if (state === 'delta' && clientWs.toolUseRunIds?.has(payload.runId)) {
+              return; // Buffer until final response
             }
 
             var trimmed = text.trim();
@@ -347,6 +356,7 @@ export function setupWebSocket(server) {
               }
               if (state === 'final') {
                 untrackRunId(payload.runId); // Done with this runId
+                clientWs.toolUseRunIds?.delete(payload.runId); // Clear tool use tracking
               }
             }
 
