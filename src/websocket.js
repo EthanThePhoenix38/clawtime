@@ -53,45 +53,12 @@ export function setupWebSocket(server, options = {}) {
   let sharedGwWs = null;
   let sharedGwConnected = false;
   let sharedAvatarState = "idle";
-  const sharedRunIds = new Set();
-  const RUNID_FILE = path.join(DATA_DIR, "pending-runids.json");
   let lastGatewayMessageTime = Date.now(); // Track for reconnect sync
-  // Message tracking - don't rely on runId
+  // Message tracking - session filter is sufficient, no runId tracking needed
   let currentBotMessageId = null; // Current streaming message
   let expectingNewMessage = true; // Next delta starts a new message
   const messageTextSent = new Map(); // Track accumulated text sent per messageId (for delta computation)
-
-  function persistRunIds() {
-    const data = {};
-    for (const runId of sharedRunIds) {
-      data[runId] = Date.now();
-    }
-    try {
-      fs.writeFileSync(RUNID_FILE, JSON.stringify(data), "utf8");
-    } catch (e) {
-      console.error("[shared] Failed to persist runIds:", e.message);
-    }
-  }
-
-  function loadPersistedRunIds() {
-    try {
-      if (fs.existsSync(RUNID_FILE)) {
-        const data = JSON.parse(fs.readFileSync(RUNID_FILE, "utf8"));
-        const now = Date.now();
-        for (const [runId, timestamp] of Object.entries(data)) {
-          // Only load runIds less than 2 minutes old
-          if (now - timestamp < 120000) {
-            sharedRunIds.add(runId);
-          }
-        }
-      }
-    } catch (e) {
-      console.error("[shared] Failed to load runIds:", e.message);
-    }
-  }
-
-  // Load any persisted runIds from previous session
-  loadPersistedRunIds();
+  
   const sharedPendingSends = new Set();
   const deltaTextByRun = new Map(); // Track accumulated delta text per runId (for TTS)
   let sharedAwaitingResponse = 0; // Count of messages awaiting first delta
@@ -112,20 +79,6 @@ export function setupWebSocket(server, options = {}) {
         client._secureSend(data);
       }
     }
-  }
-
-  function sharedTrackRunId(runId) {
-    sharedRunIds.add(runId);
-    persistRunIds();
-  }
-
-  function sharedUntrackRunId(runId) {
-    sharedRunIds.delete(runId);
-    persistRunIds();
-  }
-
-  function sharedIsTracked(runId) {
-    return sharedRunIds.has(runId);
   }
 
   // ── Streaming TTS for voice mode clients ──
@@ -280,7 +233,7 @@ export function setupWebSocket(server, options = {}) {
 
         if (msg.type === "res" && msg.ok && sharedPendingSends.has(msg.id)) {
           sharedPendingSends.delete(msg.id);
-          if (msg.payload?.runId) sharedTrackRunId(msg.payload.runId);
+          // No need to track runId - session filter is sufficient
           return;
         }
 
@@ -293,7 +246,8 @@ export function setupWebSocket(server, options = {}) {
         if (msg.type === "event" && msg.event === "chat") {
           const payload = msg.payload;
           if (payload?.sessionKey !== SESSION_KEY) return;
-          if (!sharedIsTracked(payload.runId)) return;
+          // No need to filter by runId - SESSION_KEY filter is sufficient
+          // All chat events for our session are relevant
 
           // Update last message time for reconnect sync
           lastGatewayMessageTime = Date.now();
@@ -416,10 +370,8 @@ export function setupWebSocket(server, options = {}) {
               broadcast({ type: "avatar_state", state: "coding" });
             }
           } else if (state === "final") {
-            sharedUntrackRunId(payload.runId);
-
             // Only show emotional state if no new messages awaiting response
-            if (sharedAwaitingResponse === 0 && sharedRunIds.size === 0) {
+            if (sharedAwaitingResponse === 0) {
               // Determine emotional state based on content
               let emotionalState = "happy";
               if (/```/.test(cleanText) || /\bcode\b|\bfunction\b/i.test(cleanText)) {
@@ -434,7 +386,7 @@ export function setupWebSocket(server, options = {}) {
 
               // Schedule idle after delay (only if still no activity)
               setTimeout(() => {
-                if (sharedRunIds.size === 0 && sharedAwaitingResponse === 0) {
+                if (sharedAwaitingResponse === 0) {
                   sharedAvatarState = "idle";
                   broadcast({ type: "avatar_state", state: "idle" });
                 }
@@ -644,7 +596,7 @@ export function setupWebSocket(server, options = {}) {
             }
 
             // Send current avatar state if there are pending operations
-            if (sharedRunIds.size > 0) {
+            if (sharedAwaitingResponse > 0) {
               secureSend(JSON.stringify({ type: "avatar_state", state: sharedAvatarState }));
             }
 
