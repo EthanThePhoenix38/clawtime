@@ -503,7 +503,15 @@
   }
 
   // ─── Animation Loop ───
+  var animationPaused = false;
+  
   function animate() {
+    if (animationPaused) {
+      // When paused, still schedule next frame but do nothing
+      // This allows instant resume when visibility returns
+      requestAnimationFrame(animate);
+      return;
+    }
     requestAnimationFrame(animate);
     var delta = clock.getDelta();
     var elapsed = clock.getElapsedTime();
@@ -824,6 +832,26 @@
     camera.updateProjectionMatrix();
     renderer.setSize(w, h);
   };
+
+  // Pause/resume animation to save resources when tab is hidden
+  window.pauseAvatarAnimation = function () {
+    animationPaused = true;
+  };
+
+  window.resumeAvatarAnimation = function () {
+    animationPaused = false;
+    if (clock) clock.getDelta(); // Reset clock delta to avoid jump
+  };
+
+  // Auto-pause on visibility change
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "hidden") {
+      animationPaused = true;
+    } else {
+      animationPaused = false;
+      if (clock) clock.getDelta(); // Reset delta
+    }
+  });
 
   window.initAvatarScene = initScene;
 })();

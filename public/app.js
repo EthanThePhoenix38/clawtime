@@ -102,6 +102,7 @@ let pendingAttachments = []; // Array of { base64, name, type, dataUrl? }
 
 // ─── History Pagination ───
 const HISTORY_PAGE_SIZE = 10;
+const MAX_DOM_MESSAGES = 200; // Limit DOM messages to prevent memory bloat
 let historyMessages = [];
 let historyIndex = 0;
 let loadingMore = false;
@@ -111,6 +112,21 @@ const deltaGapTimer = null;
 let activeRunning = false;
 const avatarIdleTimer = null; // Track idle timeout for cancellation
 let lastMessageTimestamp = null; // Track for reconnect sync
+
+// Trim old DOM messages to prevent memory bloat
+function trimOldMessages() {
+  const messages = messagesEl.querySelectorAll(".message");
+  if (messages.length > MAX_DOM_MESSAGES) {
+    const toRemove = messages.length - MAX_DOM_MESSAGES;
+    for (let i = 0; i < toRemove; i++) {
+      messages[i].remove();
+    }
+    // Show load-more indicator since we removed messages
+    if (!document.getElementById("load-more")) {
+      showLoadMoreIndicator();
+    }
+  }
+}
 
 function showLoadMoreIndicator() {
   let indicator = document.getElementById("load-more");
@@ -861,6 +877,11 @@ function addMessage(text, sender, opts) {
     }
   }
 
+  // Trim old messages to prevent memory bloat (only when appending, not loading history)
+  if (!opts.prepend && !opts.noScroll) {
+    trimOldMessages();
+  }
+
   return bubble;
 }
 
@@ -962,12 +983,16 @@ function processChatEvent(msg) {
     // Remove any streaming bubble for this runId
     if (existingBubble) existingBubble.remove();
     addMessage("Error: " + errorText, "bot", { timestamp: Date.now() });
+    // Clean up accumulator to prevent memory leak
+    messageAccumulator.delete(messageId);
     // Avatar state handled by server
   } else if (state === "aborted") {
     hideTyping();
     activeRunning = false;
     // Remove any streaming bubble for this runId
     if (existingBubble) existingBubble.remove();
+    // Clean up accumulator to prevent memory leak
+    messageAccumulator.delete(messageId);
     // Avatar state handled by server
   }
 }
@@ -1724,6 +1749,21 @@ function hideTyping() {
 
 // ─── E2E Resource Cache ───
 window._e2eBlobCache = {}; // url → blob URL (cached)
+window._e2eBlobCacheOrder = []; // Track insertion order for LRU cleanup
+const MAX_BLOB_CACHE_SIZE = 50;
+
+function addToBlobCache(url, blobUrl) {
+  // Clean up oldest entries if cache is full
+  while (window._e2eBlobCacheOrder.length >= MAX_BLOB_CACHE_SIZE) {
+    const oldUrl = window._e2eBlobCacheOrder.shift();
+    if (window._e2eBlobCache[oldUrl]) {
+      URL.revokeObjectURL(window._e2eBlobCache[oldUrl]);
+      delete window._e2eBlobCache[oldUrl];
+    }
+  }
+  window._e2eBlobCache[url] = blobUrl;
+  window._e2eBlobCacheOrder.push(url);
+}
 window._e2ePendingFetches = {}; // url → true (dedup in-flight requests)
 
 // ─── E2E Encryption (ECDH P-256 + AES-256-GCM) ───
@@ -1959,9 +1999,8 @@ function connectWs() {
         for (let ri = 0; ri < bytes.length; ri++) arr[ri] = bytes.charCodeAt(ri);
         const blob = new Blob([arr], { type: msg.mimeType || "application/octet-stream" });
         const blobUrl = URL.createObjectURL(blob);
-        // Cache for future re-renders
-        if (!window._e2eBlobCache) window._e2eBlobCache = {};
-        window._e2eBlobCache[msg.url] = blobUrl;
+        // Cache for future re-renders (with LRU cleanup)
+        addToBlobCache(msg.url, blobUrl);
         if (window._e2ePendingFetches) delete window._e2ePendingFetches[msg.url];
         // Preserve scroll position when images load
         const prevScrollTop = messagesEl.scrollTop;
@@ -2540,6 +2579,32 @@ window.addEventListener("online", function () {
 window.addEventListener("offline", function () {
   setStatus("offline");
 });
+
+// Clean up on page unload
+window.addEventListener("pagehide", function () {
+  if (ws) {
+    ws.close();
+    ws = null;
+  }
+});
+
+// Periodic idle cleanup (runs every 5 minutes)
+setInterval(function () {
+  // Only run when page is hidden (true idle)
+  if (document.visibilityState === "hidden") {
+    // Clear any stale message accumulator entries (older than 5 min)
+    // Shouldn't happen normally, but safety net
+    if (messageAccumulator.size > 0) {
+      console.log("[cleanup] Clearing stale messageAccumulator entries:", messageAccumulator.size);
+      messageAccumulator.clear();
+    }
+    
+    // Clear pending chat events
+    if (pendingChatEvents.length > 0) {
+      pendingChatEvents = [];
+    }
+  }
+}, 300000); // 5 minutes
 
 // Periodic connection health check (catches zombie connections)
 setInterval(function () {
@@ -3806,17 +3871,22 @@ function playTTSAudio(data, onDone) {
 
 function playTTSFallback(url, onDone) {
   const audio = new Audio(url);
+  const isBlobUrl = url.startsWith("blob:");
   window._ttsAudioEl = audio;
   audio.onended = function () {
     window._ttsAudioEl = null;
+    // Revoke blob URL to free memory
+    if (isBlobUrl) URL.revokeObjectURL(url);
     if (onDone) onDone();
   };
   audio.onerror = function () {
     window._ttsAudioEl = null;
+    if (isBlobUrl) URL.revokeObjectURL(url);
     if (onDone) onDone();
   };
   audio.play().catch(function () {
     window._ttsAudioEl = null;
+    if (isBlobUrl) URL.revokeObjectURL(url);
     if (onDone) onDone();
   });
 }
